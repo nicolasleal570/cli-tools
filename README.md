@@ -17,6 +17,26 @@ worktree create merchant-web feat/alds-1234-modal feat/merchant-web
 pr-review https://github.com/org/repo/pull/123
 ```
 
+## Shell completion (zsh)
+
+`install.sh` also symlinks zsh completion files into `~/.zsh/completions/` (override with `COMP_DIR=…`). To activate, make sure your `~/.zshrc` has these lines (the `fpath` line must come BEFORE `compinit`):
+
+```zsh
+fpath=(~/.zsh/completions $fpath)
+autoload -Uz compinit && compinit
+```
+
+Reload with `source ~/.zshrc` and tab-completion is live:
+
+```bash
+worktree <TAB>                           # → create / remove / list
+worktree create <TAB>                    # → repos under $REPOS_ROOT
+worktree create merchant-web foo <TAB>   # → branches in that repo (for base)
+worktree remove <TAB>                    # → worktree dirs under $WORKTREE_ROOT
+worktree remove some-wt --<TAB>          # → --delete-branch / --force
+pr-review --<TAB>                        # → --clean
+```
+
 ## Scripts
 
 ### `worktree` — git worktree manager for feature development

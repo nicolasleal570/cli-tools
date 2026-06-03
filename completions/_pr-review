@@ -1,0 +1,18 @@
+#compdef pr-review
+#
+# zsh completion for the `pr-review` command from cli-tools.
+# https://github.com/nicolasleal570/cli-tools
+
+_pr-review() {
+  if (( CURRENT == 2 )); then
+    local -a flags
+    flags=(
+      '--clean:Tear down a review environment instead of creating one'
+    )
+    _describe 'flag (or paste a GitHub PR URL)' flags
+    return
+  fi
+  # After --clean, expect a PR URL — nothing to autocomplete there.
+}
+
+_pr-review "$@"

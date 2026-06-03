@@ -1,0 +1,101 @@
+#compdef worktree
+#
+# zsh completion for the `worktree` command from cli-tools.
+# https://github.com/nicolasleal570/cli-tools
+#
+# This file is autoloaded by zsh's compsys when placed in any directory
+# listed in $fpath. Filename MUST start with `_` and match the command name.
+
+_worktree() {
+  # Position 1 = the subcommand (create | remove | list).
+  if (( CURRENT == 2 )); then
+    local -a subcommands
+    subcommands=(
+      'create:Create a worktree, tmux session, copy env, install deps'
+      'remove:Tear down a worktree (and optionally its branch)'
+      'list:List active worktrees under $WORKTREE_ROOT'
+    )
+    _describe 'worktree subcommand' subcommands
+    return
+  fi
+
+  case "$words[2]" in
+    create) _worktree_create ;;
+    remove) _worktree_remove ;;
+    list)   _worktree_list   ;;
+  esac
+}
+
+# create <repo> <branch> <base-branch>
+_worktree_create() {
+  case "$CURRENT" in
+    3) _worktree_repos ;;
+    4) ;;  # <branch> is free-form (e.g. feat/alds-1234-foo) — no completion
+    5) _worktree_branches "$words[3]" ;;
+  esac
+}
+
+# remove <worktree-dir> [--delete-branch] [--force]
+_worktree_remove() {
+  if [[ "$words[CURRENT]" == -* ]]; then
+    local -a flags
+    flags=(
+      '--delete-branch:Also delete the local branch'
+      '--force:Skip uncommitted-changes safety check'
+    )
+    _describe 'flag' flags
+    return
+  fi
+  # Only suggest a worktree dir if we haven't already collected a positional.
+  local seen=0 i
+  for (( i = 3; i < CURRENT; i++ )); do
+    [[ "$words[i]" == -* ]] || seen=1
+  done
+  (( seen == 0 )) && _worktree_dirs
+}
+
+# list [<repo>]
+_worktree_list() {
+  (( CURRENT == 3 )) && _worktree_repos
+}
+
+# --- helpers --------------------------------------------------------------
+
+_worktree_repos() {
+  local repos_root="${REPOS_ROOT:-$HOME/Documents/projects}"
+  [[ -d "$repos_root" ]] || return
+  local -a repos
+  local dir
+  for dir in "$repos_root"/*(N/); do
+    [[ -d "$dir/.git" ]] && repos+=("${dir:t}")
+  done
+  (( ${#repos} )) && _describe 'repo' repos
+}
+
+_worktree_dirs() {
+  local wt_root="${WORKTREE_ROOT:-${REPOS_ROOT:-$HOME/Documents/projects}/.worktrees}"
+  [[ -d "$wt_root" ]] || return
+  local -a worktrees
+  local dir
+  for dir in "$wt_root"/*(N/); do
+    worktrees+=("${dir:t}")
+  done
+  (( ${#worktrees} )) && _describe 'worktree directory' worktrees
+}
+
+_worktree_branches() {
+  local repo="$1"
+  local repos_root="${REPOS_ROOT:-$HOME/Documents/projects}"
+  local main_clone="$repos_root/$repo"
+  [[ -d "$main_clone/.git" ]] || return
+  local -a local_b remote_b branches
+  local_b=( ${(f)"$(git -C "$main_clone" for-each-ref \
+    --format='%(refname:short)' refs/heads 2>/dev/null)"} )
+  remote_b=( ${(f)"$(git -C "$main_clone" for-each-ref \
+    --format='%(refname:lstrip=3)' refs/remotes/origin 2>/dev/null)"} )
+  branches=( ${(u)local_b} ${(u)remote_b} )
+  branches=( ${(u)branches} )
+  (( ${#branches} )) && _describe 'base branch' branches
+}
+
+_worktree "$@"
