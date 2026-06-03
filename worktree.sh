@@ -190,7 +190,7 @@ cmd_create() {
     else pm=npm; install_cmd=(npm install); warn "no lockfile found — using plain npm install"
     fi
 
-    log "Installing JS deps with $pm…"
+    log "Installing JS deps with ${pm}…"
     if command -v "$pm" >/dev/null 2>&1; then
       if "${install_cmd[@]}"; then
         ok "dependencies installed"
