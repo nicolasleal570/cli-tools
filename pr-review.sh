@@ -83,21 +83,57 @@ REVIEW_FILE="code-review-pr-${PR}.md"
 # ---------------------------------------------------------------------------
 if [[ "$CLEAN" == "1" ]]; then
   log "Tearing down review environment for $ORG/$REPO #$PR"
+  log "Worktree:   $WORKTREE"
+  log "Main clone: $MAIN_CLONE"
+  log "Session:    $SESSION"
+  log "Branch:     $BRANCH"
+
+  # 1. tmux session
   if tmux kill-session -t "$SESSION" 2>/dev/null; then
     ok "killed tmux session $SESSION"
+  else
+    log "tmux session '$SESSION' was not running"
   fi
-  if [[ -d "$WORKTREE" ]]; then
-    if git -C "$MAIN_CLONE" worktree remove --force "$WORKTREE" 2>/dev/null; then
-      ok "removed worktree"
+
+  # 2. git worktree — try via git first, fall back to manual rm
+  worktree_handled=0
+  if [[ -d "$MAIN_CLONE/.git" ]]; then
+    if git -C "$MAIN_CLONE" worktree list --porcelain | grep -qFx "worktree $WORKTREE"; then
+      if git -C "$MAIN_CLONE" worktree remove --force "$WORKTREE"; then
+        ok "removed worktree (via git)"
+        worktree_handled=1
+      else
+        warn "git worktree remove failed — will try manual cleanup"
+      fi
     else
-      warn "git worktree remove failed for $WORKTREE — leaving the directory in place. Inspect it and 'rm -rf' manually if you're sure nothing in it is worth keeping."
+      log "git does not list a worktree at $WORKTREE"
     fi
+  else
+    warn "main clone $MAIN_CLONE has no .git — skipping git-side cleanup"
   fi
-  if git -C "$MAIN_CLONE" branch -D "$BRANCH" 2>/dev/null; then
-    ok "deleted branch $BRANCH"
+
+  if [[ "$worktree_handled" -eq 0 && -d "$WORKTREE" ]]; then
+    log "Removing leftover directory $WORKTREE"
+    rm -rf "$WORKTREE"
+    ok "removed worktree directory manually"
   fi
-  rm -rf "$STATE_DIR"
-  git -C "$MAIN_CLONE" worktree prune 2>/dev/null || true
+
+  # 3. branch (pr-<num> is throwaway by design)
+  if [[ -d "$MAIN_CLONE/.git" ]]; then
+    if git -C "$MAIN_CLONE" branch -D "$BRANCH" 2>/dev/null; then
+      ok "deleted branch $BRANCH"
+    else
+      log "branch '$BRANCH' was not present"
+    fi
+    git -C "$MAIN_CLONE" worktree prune 2>/dev/null || true
+  fi
+
+  # 4. state dir
+  if [[ -d "$STATE_DIR" ]]; then
+    rm -rf "$STATE_DIR"
+    ok "removed state dir $STATE_DIR"
+  fi
+
   ok "done"
   exit 0
 fi
