@@ -88,14 +88,26 @@ if [[ "$CLEAN" == "1" ]]; then
   log "Session:    $SESSION"
   log "Branch:     $BRANCH"
 
-  # 1. tmux session
-  if tmux kill-session -t "$SESSION" 2>/dev/null; then
-    ok "killed tmux session $SESSION"
-  else
-    log "tmux session '$SESSION' was not running"
+  # If we're running INSIDE the session we're about to kill, the tmux
+  # kill-session at the end will also terminate this script. Do all the
+  # destructive cleanup first so it completes regardless.
+  inside_target_session=0
+  if [[ -n "${TMUX:-}" ]]; then
+    current_session="$(tmux display-message -p '#S' 2>/dev/null || true)"
+    if [[ "$current_session" == "$SESSION" ]]; then
+      inside_target_session=1
+      warn "you are inside the tmux session '$SESSION' — it will be killed last and you'll get detached"
+    fi
   fi
 
-  # 2. git worktree — try via git first, fall back to manual rm
+  # If our cwd is inside the worktree we're about to remove, jump out so
+  # git worktree remove doesn't fail with "cannot remove current worktree".
+  if [[ "$PWD" == "$WORKTREE"* ]]; then
+    log "stepping out of $WORKTREE before removal"
+    cd "$MAIN_CLONE" 2>/dev/null || cd "$HOME"
+  fi
+
+  # 1. git worktree — try via git first, fall back to manual rm
   worktree_handled=0
   if [[ -d "$MAIN_CLONE/.git" ]]; then
     if git -C "$MAIN_CLONE" worktree list --porcelain | grep -qFx "worktree $WORKTREE"; then
@@ -118,7 +130,7 @@ if [[ "$CLEAN" == "1" ]]; then
     ok "removed worktree directory manually"
   fi
 
-  # 3. branch (pr-<num> is throwaway by design)
+  # 2. branch (pr-<num> is throwaway by design)
   if [[ -d "$MAIN_CLONE/.git" ]]; then
     if git -C "$MAIN_CLONE" branch -D "$BRANCH" 2>/dev/null; then
       ok "deleted branch $BRANCH"
@@ -128,10 +140,21 @@ if [[ "$CLEAN" == "1" ]]; then
     git -C "$MAIN_CLONE" worktree prune 2>/dev/null || true
   fi
 
-  # 4. state dir
+  # 3. state dir
   if [[ -d "$STATE_DIR" ]]; then
     rm -rf "$STATE_DIR"
     ok "removed state dir $STATE_DIR"
+  fi
+
+  # 4. tmux session LAST — this may terminate the script itself if we're
+  # running inside the target session. Everything above is already done.
+  if [[ "$inside_target_session" -eq 1 ]]; then
+    ok "cleanup complete — killing session '$SESSION' now (you'll be detached)"
+  fi
+  if tmux kill-session -t "$SESSION" 2>/dev/null; then
+    ok "killed tmux session $SESSION"
+  else
+    log "tmux session '$SESSION' was not running"
   fi
 
   ok "done"
