@@ -250,26 +250,88 @@ install_deps
 # ---------------------------------------------------------------------------
 PROMPT_FILE="$STATE_DIR/review-prompt.md"
 cat > "$PROMPT_FILE" <<EOF
-Use the ${REVIEW_SKILL} skill to perform a thorough code review of GitHub PR #${PR} (${ORG}/${REPO}).
+You will perform a thorough code review of GitHub PR #${PR} (${ORG}/${REPO}).
+The PR head is checked out in this worktree as the local branch "${BRANCH}".
 
-The PR head is checked out in this worktree as the local branch "${BRANCH}". Review the diff of
-this branch against its merge base with the repository's default branch — detect whether the
-default is origin/main or origin/master, then diff merge-base(HEAD, <default>)...HEAD.
+Follow the four steps below IN ORDER. Do NOT start reading source files until
+steps 1–3 are complete — context-first is the whole point of this prompt.
 
-STRICT CONSTRAINTS — this is a READ-ONLY review:
-- Do NOT push, commit, or modify the branch. Do NOT run \`git push\`, \`git commit\`, or \`git merge\`.
-- Do NOT run any GitHub-writing command: no \`gh pr create/edit/comment/review/merge/close/reopen\`,
-  no \`gh issue create/edit/comment/close\`, no \`gh api\` (it can POST/PATCH/DELETE), no
-  \`gh release|repo|workflow\` write subcommands. Do NOT post reviews, comments, or status checks.
-- READ-ONLY GitHub queries are ALLOWED and encouraged: \`gh pr view\`, \`gh pr diff\`,
-  \`gh pr checks\`, \`gh pr status\`, \`gh issue view\`, \`gh issue list\`, \`gh repo view\`.
-- Do NOT read, open, print, or quote the contents of any .env file or other secrets. If a finding
-  involves secrets handling, describe it without revealing values.
+## STEP 1 — Gather PR context (ONE gh call, before any code reading)
 
-DELIVERABLE:
-- Write the complete review to ./${REVIEW_FILE} in this worktree (create or overwrite it).
-- Then post a short summary of the top findings in this chat and STOP. Stay in this interactive
-  session so I can ask follow-up questions — do not exit.
+Run exactly this command to pull all the metadata you need in a single shot:
+
+    gh pr view ${PR} --repo ${ORG}/${REPO} --json \\
+      baseRefName,headRefName,title,body,author,labels,\\
+      additions,deletions,changedFiles,isDraft
+
+From the JSON, extract and remember:
+- **baseRefName** — the REAL base branch. Do NOT assume \`main\` or \`master\`.
+  This repo may use \`develop\`, a release branch, or a feature-train branch.
+- **headRefName** — the PR source branch (use it in the writeup, not "${BRANCH}").
+- **title, body** — understand the author's INTENT before reading code.
+- **labels** — flags like \`WIP\`, \`breaking-change\`, \`needs-design-review\`
+  change how you weigh findings.
+- **author** — tone-calibrate your feedback.
+- **additions / deletions / changedFiles** — scope check. If > 400 lines or
+  > 15 files, flag PR-size as a finding in itself.
+- **isDraft** — if true, lean toward suggestions; if false, blockers are fair.
+
+If \`gh\` fails (offline, auth expired, fork without access, etc.), fall back to:
+
+    git symbolic-ref refs/remotes/origin/HEAD    # detects the repo default
+
+and clearly note at the TOP of your review that you used the fallback and
+which base you chose, so the human can verify.
+
+## STEP 2 — Compute the correct diff using the REAL base
+
+With \`baseRefName\` from step 1:
+
+    git fetch origin <baseRefName>
+    merge_base=\$(git merge-base HEAD origin/<baseRefName>)
+    git diff \$merge_base...HEAD
+
+The \`merge-base...HEAD\` form isolates the PR's actual changes from any
+drift that has happened on the base branch since the PR was opened.
+
+## STEP 3 — Anchor your review in the PR's stated INTENT
+
+Re-read the title and body from step 1 before forming opinions. If the body
+lists acceptance criteria, walk through each one and confirm/deny it from the
+diff. A finding carries more weight when you can tie it to "the PR claims X
+but the code does Y" rather than "I would have written it differently".
+
+## STEP 4 — Run the ${REVIEW_SKILL} skill with all the context loaded
+
+Now invoke the \`${REVIEW_SKILL}\` skill. By this point you should know:
+the real base, the diff scope, the author's intent, and the PR's flags. Use
+all of that to focus the review on what actually matters for THIS change.
+
+## STRICT CONSTRAINTS — this is a READ-ONLY review
+
+- Do NOT push, commit, or modify the branch. Do NOT run \`git push\`,
+  \`git commit\`, or \`git merge\`.
+- Do NOT run any GitHub-writing command: no \`gh pr create/edit/comment/
+  review/merge/close/reopen\`, no \`gh issue create/edit/comment/close\`, no
+  \`gh api\` (it can POST/PATCH/DELETE), no \`gh release|repo|workflow\` write
+  subcommands. Do NOT post reviews, comments, or status checks.
+- READ-ONLY GitHub queries are ALLOWED and encouraged: \`gh pr view\`,
+  \`gh pr diff\`, \`gh pr checks\`, \`gh pr status\`, \`gh issue view\`,
+  \`gh issue list\`, \`gh repo view\`.
+- Do NOT read, open, print, or quote the contents of any \`.env\` file or
+  other secrets. If a finding involves secrets handling, describe it
+  without revealing values.
+
+## DELIVERABLE
+
+Write the complete review to \`./${REVIEW_FILE}\` in this worktree (create or
+overwrite). Start the file with a one-line context header using the values
+from step 1:
+
+    Reviewing PR #${PR} "<title>" by <author> | base: <baseRefName> | <changedFiles> files, +<additions>/-<deletions>
+
+Then post a SHORT summary of the top findings in this chat and STOP. Stay in
+this interactive session so I can ask follow-up questions — do not exit.
 EOF
 
 # Optional hard guard: block GitHub-WRITING tools AND secret-file reads at the CLI level.
